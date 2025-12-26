@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="إنجازي">
+    <meta name="description" content="تطبيق إدارة المهام الأسبوعي مع تطوير الأفكار بالذكاء الاصطناعي">
+    <meta name="theme-color" content="#6366f1">
+    <meta name="background-color" content="#020617">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Tajawal', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+        .safe-top { padding-top: env(safe-area-inset-top); }
+        .glass { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); }
+        .drag-ghost { opacity: 0.5; transform: scale(1.02); }
+        .category-dot { width: 8px; height: 8px; border-radius: 50%; }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .animate-slideUp { animation: slideUp 0.3s ease-out; }
+        .animate-pulse { animation: pulse 2s infinite; }
+        .animate-spin { animation: spin 1s linear infinite; }
+        .shake { animation: shake 0.5s ease-in-out; }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        @keyframes typing { 0% { width: 0 } 100% { width: 100% } }
+        .typing-effect { overflow: hidden; white-space: nowrap; animation: typing 2s steps(40); }
+        .category-work { background: #3b82f6; }
+        .category-personal { background: #10b981; }
+        .category-health { background: #f59e0b; }
+        .category-study { background: #8b5cf6; }
+        .category-other { background: #6b7280; }
+        .phase-1 { border-right: 4px solid #3b82f6; }
+        .phase-2 { border-right: 4px solid #10b981; }
+        .phase-3 { border-right: 4px solid #f59e0b; }
+        .phase-4 { border-right: 4px solid #8b5cf6; }
+        .phase-5 { border-right: 4px solid #ec4899; }
+    </style>
+</head>
+<body class="bg-slate-950 text-white overflow-hidden transition-colors duration-300">
+    <div id="app" class="h-[100dvh] flex flex-col"></div>
+
+    <script>
+        // --- البيانات الأولية والتصنيفات ---
+        const CATEGORIES = [
+            { id: 'work', name: 'عمل', color: 'blue', icon: '💼' },
+            { id: 'personal', name: 'شخصي', color: 'green', icon: '🏠' },
+            { id: 'health', name: 'صحة', color: 'amber', icon: '🏃' },
+            { id: 'study', name: 'دراسة', color: 'violet', icon: '📚' },
+            { id: 'other', name: 'أخرى', color: 'gray', icon: '📌' }
+        ];
+
+        const DAYS = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+
+        const PHASES = [
+            { id: 1, name: 'التخطيط', icon: '📋', color: 'blue', duration: '1-3 أيام' },
+            { id: 2, name: 'البدء', icon: '🚀', color: 'green', duration: '3-7 أيام' },
+            { id: 3, name: 'التنفيذ', icon: '⚡', color: 'amber', duration: '1-4 أسابيع' },
+            { id: 4, name: 'المراجعة', icon: '🔍', color: 'violet', duration: '2-5 أيام' },
+            { id: 5, name: 'الإنجاز', icon: '🎯', color: 'pink', duration: '1-3 أيام' }
+        ];
+
+        const PRIORITIES = [
+            { id: 'high', name: 'عالية', color: 'red', icon: '🔴' },
+            { id: 'medium', name: 'متوسطة', color: 'amber', icon: '🟡' },
+            { id: 'low', name: 'منخفضة', color: 'green', icon: '🟢' }
+        ];
+
+        let state = {
+            activeTab: 'tasks',
+            settingsTab: 'general',
+            isDarkMode: true,
+            showAddTask: false,
+            showAddIdea: false,
+            showSettings: false,
+            showCategoryPicker: false,
+            showAIPanel: false,
+            showWorkPlan: false,
+            selectedIdea: null,
+            editingTask: null,
+            selectedCategory: 'work',
+            selectedPriority: 'medium',
+            expandedDay: new Date().getDay() + 1,
+            tasks: JSON.parse(localStorage.getItem('enjaaz_tasks') || '[]'),
+            ideas: JSON.parse(localStorage.getItem('enjaaz_ideas') || '[]'),
+            workPlans: JSON.parse(localStorage.getItem('enjaaz_workplans') || '[]'),
+            completedHistory: JSON.parse(localStorage.getItem('enjaaz_history') || '{}'),
+            settings: JSON.parse(localStorage.getItem('enjaaz_settings') || '{"notifications": true, "reminderTime": "09:00", "startDay": 6, "apiKey": ""}'),
+            newTaskText: '',
+            newTaskNote: '',
+            newTaskDate: '',
+            newTaskRepeat: 'none',
+            newTaskPriority: 'medium',
+            newIdeaText: '',
+            aiPrompt: '',
+            aiResponse: '',
+            isGenerating: false,
+            generatedPlan: null
+        };
+
+        // --- دوال التخزين ---
+        function save() {
+            localStorage.setItem('enjaaz_tasks', JSON.stringify(state.tasks));
+            localStorage.setItem('enjaaz_ideas', JSON.stringify(state.ideas));
+            localStorage.setItem('enjaaz_workplans', JSON.stringify(state.workPlans));
+            localStorage.setItem('enjaaz_history', JSON.stringify(state.completedHistory));
+            localStorage.setItem('enjaaz_settings', JSON.stringify(state.settings));
+        }
+
+        function getTodayString() {
+            const now = new Date();
+            return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        }
+
+        // --- دوال الإحصائيات ---
+        function calculateStats() {
+            const today = getTodayString();
+            const weekTasks = state.tasks.filter(t => {
+                const taskDate = new Date(t.createdAt);
+                const now = new Date();
+                const weekAgo = new Date(now.setDate(now.getDate() - 7));
+                return taskDate >= weekAgo;
+            });
+
+            const todayCompleted = state.completedHistory[today] || 0;
+            const weekCompleted = Object.values(state.completedHistory).reduce((a, b) => a + b, 0);
+
+            const completedTasks = state.tasks.filter(t => t.completed);
+            const streak = calculateStreak();
+
+            return {
+                total: state.tasks.length,
+                completed: completedTasks.length,
+                pending: state.tasks.length - completedTasks.length,
+                todayCompleted,
+                weekCompleted,
+                streak,
+                completionRate: state.tasks.length ? Math.round((completedTasks.length / state.tasks.length) * 100) : 0
+            };
+        }
+
+        function calculateStreak() {
+            let streak = 0;
+            const today = new Date();
+            for (let i = 0; i < 365; i++) {
+                const date = new Date(today);
+                date.setDate(today.getDate() - i);
+                const dateStr = date.toISOString().split('T')[0];
+                if ((state.completedHistory[dateStr] || 0) > 0) {
+                    streak++;
+                } else if (i > 0) {
+                    break;
+                }
+            }
+            return streak;
+        }
+
+        function getWeekDays() {
+            const days = [];
+            const today = new Date();
+            const dayOfWeek = today.getDay();
+            const startOfWeek = new Date(today);
+            startOfWeek.setDate(today.getDate() - dayOfWeek + (state.settings.startDay || 6));
+
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(startOfWeek);
+                date.setDate(startOfWeek.getDate() + i);
+                days.push({
+                    date,
+                    dateStr: date.toISOString().split('T')[0],
+                    name: DAYS[i]
+                });
+            }
+            return days;
+        }
+
+        function getDailyProgress(dateStr) {
+            const dayTasks = state.tasks.filter(t => {
+                const taskDate = t.createdAt.split('T')[0];
+                return taskDate === dateStr;
+            });
+            if (dayTasks.length === 0) return 0;
+            return Math.round((dayTasks.filter(t => t.completed).length / dayTasks.length) * 100);
+        }
+
+        // --- دوال المهام ---
+        function addTask() {
+            if (!state.newTaskText.trim()) return;
+            
+            const task = {
+                id: Date.now(),
+                text: state.newTaskText,
+                note: state.newTaskNote,
+                category: state.selectedCategory,
+                completed: false,
+                repeat: state.newTaskRepeat,
+                priority: state.newTaskPriority,
+                createdAt: new Date().toISOString(),
+                dayId: state.expandedDay,
+                order: state.tasks.filter(t => t.dayId === state.expandedDay).length
+            };
+
+            state.tasks.push(task);
+            save();
+            
+            state.newTaskText = '';
+            state.newTaskNote = '';
+            state.newTaskRepeat = 'none';
+            state.newTaskPriority = 'medium';
+            state.showAddTask = false;
+            render();
+        }
+
+        function toggleTask(id) {
+            const task = state.tasks.find(t => t.id === id);
+            if (task) {
+                task.completed = !task.completed;
+                
+                if (task.completed) {
+                    const today = getTodayString();
+                    state.completedHistory[today] = (state.completedHistory[today] || 0) + 1;
+                }
+                
+                save();
+                render();
+            }
+        }
+
+        function deleteTask(id) {
+            const task = state.tasks.find(t => t.id === id);
+            if (task && task.completed && task.createdAt.startsWith(getTodayString())) {
+                const today = getTodayString();
+                state.completedHistory[today] = Math.max(0, (state.completedHistory[today] || 1) - 1);
+            }
+            state.tasks = state.tasks.filter(t => t.id !== id);
+            save();
+            render();
+        }
+
+        // --- دوال الأفكار ---
+        function addIdea() {
+            if (!state.newIdeaText.trim()) return;
+            
+            state.ideas.unshift({
+                id: Date.now(),
+                text: state.newIdeaText,
+                category: state.selectedCategory,
+                createdAt: new Date().toISOString(),
+                hasPlan: false
+            });
+            
+            save();
+            state.newIdeaText = '';
+            render();
+        }
+
+        function deleteIdea(id) {
+            state.ideas = state.ideas.filter(i => i.id !== id);
+            state.workPlans = state.workPlans.filter(p => p.ideaId !== id);
+            save();
+            render();
+        }
+
+        function openIdeaDetails(idea) {
+            state.selectedIdea = idea;
+            state.showAIPanel = true;
+            state.aiPrompt = '';
+            state.aiResponse = '';
+            state.generatedPlan = null;
+            render();
+        }
+
+        function openIdeaById(id) {
+            const idea = state.ideas.find(i => i.id === id);
+            if (idea) {
+                openIdeaDetails(idea);
+            }
+        }
+
+        function openWorkPlanById(id) {
+            const plan = state.workPlans.find(p => p.id === id);
+            if (plan) {
+                state.generatedPlan = plan;
+                state.showWorkPlan = true;
+                render();
+            }
+        }
+
+        function openWorkPlan(plan) {
+            state.generatedPlan = plan;
+            state.showWorkPlan = true;
+            render();
+        }
+
+        // --- محاكاة الذكاء الاصطناعي ---
+        async function generateAIContent(prompt, idea) {
+            state.isGenerating = true;
+            state.aiResponse = '';
+            render();
+
+            // محاكاة استجابة الذكاء الاصطناعي
+            const responses = {
+                analysis: `
+## 📊 تحليل الفكرة
+
+### الوصف الأصلي
+"${idea.text}"
+
+### نقاط القوة
+- فكرة واضحة ومحددة
+- قابلة للتنفيذ في إطار زمني محدد
+- تتوافق مع أهداف ${CATEGORIES.find(c => c.id === idea.category)?.name || 'المشروع'}
+
+### التحديات المحتملة
+- الحاجة إلى تخصيص وقت كافٍ للتنفيذ
+- قد تتطلب موارد خارجية
+- أهمية تحديد معايير النجاح بوضوح
+
+### فرص التطوير
+- إمكانية التوسع مستقبلاً
+- ربطها بأهداف أكبر
+- توظيف مهارات جديدة
+                `,
+                plan: `
+## 📋 خطة عمل مقترحة
+
+### المرحلة الأولى: التخطيط (اليوم 1-2)
+- ⬜ تحديد أهداف الفكرة بوضوح
+- ⬜ البحث عن المعلومات اللازمة
+- ⬜ إعداد قائمة بالموارد المطلوبة
+- ⬜ وضع جدول زمني مبدئي
+
+### المرحلة الثانية: التحضير (اليوم 3-4)
+- ⬜ تجهيز الأدوات والموارد
+- ⬜ إنشاء البيئة المناسبة للعمل
+- ⬜ تحديد المراحل الرئيسية
+
+### المرحلة الثالثة: التنفيذ (اليوم 5-10)
+- ⬜ البدء بتنفيذ المراحل الأساسية
+- ⬜ متابعة التقدم يومياً
+- ⬜ حل المشكلات أولاً بأول
+
+### المرحلة الرابعة: المراجعة (اليوم 11-12)
+- ⬜ تقييم النتائج المحققة
+- ⬜ مقارنة النتائج بالأهداف
+- ⬜ توثيق الدروس المستفادة
+
+### المرحلة الخامسة: الإنجاز (اليوم 13-14)
+- ⬜ الاحتفاء بالنجاح
+- ⬜ مشاركة النتائج
+- ⬜ التخطيط للمراحل القادمة
+                `,
+                improvements: `
+## 💡 أفكار تطوير الفكرة
+
+### 1. إضافة عنصر الابتكار
+يمكن دمج عناصر جديدة تجذب الانتباه وتتميز بها الفكرة عن غيرها
+
+### 2. تعزيز القيمة المضافة
+تحديد القيمة الحقيقية التي يقدمها هذا المشروع للمستخدمين
+
+### 3. خطة التسويق
+وضع استراتيجية واضحة للترويج وإيصال الفكرة للجمهور المستهدف
+
+### 4. قياس الأداء
+تحديد مؤشرات أداء قابلة للقياس لتتبع النجاح
+
+### 5. الاستمرارية
+وضع خطة للحفاظ على استمرارية الفكرة وتطورها
+                `,
+                timeline: `
+## 📅 الجدول الزمني المقترح
+
+### الأسبوع الأول: البناء
+- **اليوم 1-2**: التخطيط والرؤية
+- **اليوم 3-4**: التحضير والتجهيز
+- **اليوم 5-7**: بداية التنفيذ
+
+### الأسبوع الثاني: التطوير
+- **اليوم 8-10**: التطوير والتحديث
+- **اليوم 11-12**: الاختبار والتحسين
+- **اليوم 13-14**: المراجعة النهائية
+
+### الميزانية التقديرية
+- الوقت المطلوب: 14 يوم
+- الموارد البشرية: شخص واحد
+- التكلفة المالية: صفر - منخفضة
+
+### المعالم الرئيسية
+- ✓ نهاية الأسبوع الأول: مراجعة التقدم
+- ✓ منتصف الأسبوع الثاني: نسخة أولية
+- ✓ نهاية الأسبوع الثاني: إطلاق كامل
+                `
+            };
+
+            const responseKey = prompt.toLowerCase().includes('خطة') ? 'plan' : 
+                               prompt.toLowerCase().includes('تطوير') ? 'improvements' :
+                               prompt.toLowerCase().includes('جدول') ? 'timeline' : 'analysis';
+
+            const response = responses[responseKey] || responses.analysis;
+            
+            // محاكاة الكتابة التدريجية
+            const lines = response.split('\n');
+            for (const line of lines) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                state.aiResponse += line + '\n';
+                render();
+                // التمرير إلى الأسفل
+                const content = document.getElementById('aiResponseContent');
+                if (content) content.scrollTop = content.scrollHeight;
+            }
+
+            // إنشاء خطة العمل إذا طلب ذلك
+            if (prompt.toLowerCase().includes('خطة')) {
+                state.generatedPlan = {
+                    id: Date.now(),
+                    ideaId: idea.id,
+                    ideaText: idea.text,
+                    category: idea.category,
+                    phases: [
+                        { id: 1, name: 'التخطيط', tasks: ['تحديد الأهداف', 'البحث والمعلومات', 'إعداد الموارد'], completed: false },
+                        { id: 2, name: 'البدء', tasks: ['تجهيز الأدوات', 'إنشاء البيئة', 'تحديد المراحل'], completed: false },
+                        { id: 3, name: 'التنفيذ', tasks: ['تنفيذ المراحل', 'المتابعة اليومية', 'حل المشكلات'], completed: false },
+                        { id: 4, name: 'المراجعة', tasks: ['تقييم النتائج', 'مقارنة بالأهداف', 'توثيق الدروس'], completed: false },
+                        { id: 5, name: 'الإنجاز', tasks: ['الاحتفاء بالنجاح', 'مشاركة النتائج', 'التخطيط للمستقبل'], completed: false }
+                    ],
+                    createdAt: new Date().toISOString(),
+                    totalTasks: 15,
+                    completedTasks: 0
+                };
+                render();
+            }
+
+            state.isGenerating = false;
+            render();
+        }
+
+        function addPlanToTasks(plan) {
+            // إضافة جميع مهام الخطة إلى قائمة المهام
+            let taskId = Date.now();
+            plan.phases.forEach((phase, phaseIndex) => {
+                phase.tasks.forEach((taskText, taskIndex) => {
+                    state.tasks.push({
+                        id: taskId++,
+                        text: `[${plan.ideaText.substring(0, 20)}...] - ${taskText}`,
+                        note: `مرحلة: ${phase.name}`,
+                        category: plan.category,
+                        completed: false,
+                        repeat: 'none',
+                        priority: 'medium',
+                        createdAt: new Date().toISOString(),
+                        dayId: (state.expandedDay + phaseIndex) % 7,
+                        order: taskIndex,
+                        isPlanTask: true,
+                        planId: plan.id
+                    });
+                });
+            });
+
+            // تحديث الفكرة لتشير أنها تحتوي على خطة
+            const idea = state.ideas.find(i => i.id === plan.ideaId);
+            if (idea) idea.hasPlan = true;
+
+            // إضافة الخطة للقائمة
+            if (!state.workPlans.find(p => p.id === plan.id)) {
+                state.workPlans.push(plan);
+            }
+
+            save();
+            state.showWorkPlan = false;
+            render();
+            
+            alert('✅ تم إضافة جميع مهام الخطة إلى قائمة المهام!');
+        }
+
+        // --- التنقل والمظهر ---
+        function setTab(tab) {
+            state.activeTab = tab;
+            state.showAddTask = false;
+            state.showAddIdea = false;
+            state.editingTask = null;
+            state.showAIPanel = false;
+            state.showWorkPlan = false;
+            render();
+        }
+
+        function setSettingsTab(tab) {
+            state.settingsTab = tab;
+            render();
+        }
+
+        function toggleTheme() {
+            state.isDarkMode = !state.isDarkMode;
+            save();
+            render();
+        }
+
+        function toggleDay(id) {
+            state.expandedDay = state.expandedDay === id ? null : id;
+            render();
+        }
+
+        function selectCategory(categoryId) {
+            state.selectedCategory = categoryId;
+            state.showCategoryPicker = false;
+            render();
+        }
+
+        function selectPriority(priorityId) {
+            state.selectedPriority = priorityId;
+            render();
+        }
+
+        // --- التصدير والاستيراد ---
+        function exportData() {
+            const data = {
+                tasks: state.tasks,
+                ideas: state.ideas,
+                workPlans: state.workPlans,
+                completedHistory: state.completedHistory,
+                settings: state.settings,
+                exportDate: new Date().toISOString()
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `enjaaz-backup-${getTodayString()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importData(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (data.tasks) state.tasks = data.tasks;
+                    if (data.ideas) state.ideas = data.ideas;
+                    if (data.workPlans) state.workPlans = data.workPlans;
+                    if (data.completedHistory) state.completedHistory = data.completedHistory;
+                    if (data.settings) state.settings = { ...state.settings, ...data.settings };
+                    save();
+                    render();
+                } catch (err) {
+                    alert('حدث خطأ في استيراد البيانات');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // --- عرض المكونات ---
+        function render() {
+            const app = document.getElementById('app');
+            const stats = calculateStats();
+            const themeClass = state.isDarkMode ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-900';
+            const cardClass = state.isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200 shadow-sm';
+            const headerClass = state.isDarkMode ? 'bg-slate-950/80 border-slate-900' : 'bg-white/80 border-slate-200';
+            const inputClass = state.isDarkMode ? 'bg-slate-800/50 border-slate-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-900';
+            const mutedClass = state.isDarkMode ? 'text-slate-400' : 'text-slate-500';
+
+            document.body.className = themeClass;
+
+            app.innerHTML = `
+                <!-- Header -->
+                <header class="sticky top-0 z-40 px-6 pt-12 pb-4 backdrop-blur-md border-b ${headerClass} safe-top transition-colors duration-300">
+                    <div class="flex justify-between items-center mb-4">
+                        <div class="flex items-center gap-3">
+                            <h1 class="text-2xl font-black">${state.activeTab === 'tasks' ? 'إنجازي' : state.activeTab === 'ideas' ? 'أفكاري' : 'الإحصائيات'}</h1>
+                            ${state.activeTab === 'tasks' ? `<span class="bg-indigo-500/20 text-indigo-500 text-xs px-2 py-1 rounded-full font-bold">${stats.completionRate}%</span>` : ''}
+                        </div>
+                        <div class="flex items-center gap-2">
+                            ${state.activeTab === 'tasks' ? `
+                                <button onclick="toggleDay(state.expandedDay)" class="p-2 rounded-xl ${state.isDarkMode ? 'bg-slate-800 text-indigo-400' : 'bg-slate-200 text-indigo-600'}">
+                                    📅
+                                </button>
+                            ` : ''}
+                            <button onclick="state.showSettings = true; render()" class="p-2 rounded-xl ${state.isDarkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-500'}">
+                                ⚙️
+                            </button>
+                            <button onclick="toggleTheme()" class="p-2 rounded-xl ${state.isDarkMode ? 'bg-slate-800 text-yellow-400' : 'bg-slate-200 text-slate-500'}">
+                                ${state.isDarkMode ? '☀️' : '🌙'}
+                            </button>
+                        </div>
+                    </div>
+                    ${state.activeTab === 'tasks' ? renderProgressBar(stats) : ''}
+                </header>
+
+                <!-- Main Content -->
+                <main class="flex-1 overflow-y-auto px-6 pt-4 pb-32 no-scrollbar">
+                    ${state.activeTab === 'tasks' ? renderTasks(cardClass, inputClass, mutedClass) : 
+                      state.activeTab === 'ideas' ? renderIdeas(cardClass, inputClass, mutedClass) : 
+                      renderStats(stats, cardClass, inputClass, mutedClass)}
+                </main>
+
+                <!-- Add Task Modal -->
+                ${state.showAddTask ? renderAddTaskModal(inputClass) : ''}
+                ${state.editingTask ? renderEditTaskModal(inputClass) : ''}
+
+                <!-- Add Idea Modal -->
+                ${state.showAddIdea ? renderAddIdeaModal(inputClass) : ''}
+
+                <!-- AI Panel Modal -->
+                ${state.showAIPanel && state.selectedIdea ? renderAIPanel(inputClass, mutedClass) : ''}
+
+                <!-- Work Plan Modal -->
+                ${state.showWorkPlan && state.generatedPlan ? renderWorkPlanModal(cardClass, mutedClass) : ''}
+
+                <!-- Settings Modal -->
+                ${state.showSettings ? renderSettingsModal(cardClass, inputClass, mutedClass) : ''}
+
+                <!-- Category Picker -->
+                ${state.showCategoryPicker ? renderCategoryPicker() : ''}
+
+                <!-- Priority Picker -->
+                ${state.showPriorityPicker ? renderPriorityPicker() : ''}
+
+                <!-- Bottom Navigation -->
+                <nav class="fixed bottom-0 inset-x-0 px-8 pt-4 pb-10 flex justify-around items-center border-t backdrop-blur-xl ${headerClass} safe-bottom transition-colors duration-300">
+                    <button onclick="setTab('tasks')" class="flex flex-col items-center gap-1 ${state.activeTab === 'tasks' ? 'text-indigo-500' : 'text-slate-500'}">
+                        <span class="text-2xl">📝</span><span class="text-[10px] font-bold">مهامي</span>
+                    </button>
+                    <button onclick="setTab('stats')" class="flex flex-col items-center gap-1 ${state.activeTab === 'stats' ? 'text-indigo-500' : 'text-slate-500'}">
+                        <span class="text-2xl">📊</span><span class="text-[10px] font-bold">إحصائيات</span>
+                    </button>
+                    <button onclick="setTab('ideas')" class="flex flex-col items-center gap-1 ${state.activeTab === 'ideas' ? 'text-indigo-500' : 'text-slate-500'}">
+                        <span class="text-2xl">💡</span><span class="text-[10px] font-bold">أفكاري</span>
+                    </button>
+                </nav>
+            `;
+
+            // Initialize chart if on stats tab
+            if (state.activeTab === 'stats' && !document.getElementById('progressChart')) {
+                setTimeout(initChart, 100);
+            }
+        }
+
+        function renderProgressBar(stats) {
+            return `
+                <div class="flex justify-between text-[10px] font-bold text-indigo-500 mb-1">
+                    <span>التقدم هذا الأسبوع</span>
+                    <span>${stats.completed}/${stats.total}</span>
+                </div>
+                <div class="h-2 w-full ${state.isDarkMode ? 'bg-slate-800' : 'bg-slate-200'} rounded-full overflow-hidden">
+                    <div class="h-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-500" style="width: ${stats.completionRate}%"></div>
+                </div>
+            `;
+        }
+
+        function renderTasks(cardClass, inputClass, mutedClass) {
+            return DAYS.map((name, id) => {
+                const dayTasks = state.tasks.filter(t => t.dayId === id).sort((a, b) => a.order - b.order);
+                const isExpanded = state.expandedDay === id;
+
+                return `
+                    <div class="mb-3 rounded-[2rem] border ${isExpanded ? 'bg-indigo-600/5 border-indigo-500/30' : cardClass} transition-all duration-300">
+                        <button onclick="toggleDay(${id})" class="w-full p-5 flex items-center justify-between">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-sm ${isExpanded ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-500'}">
+                                    ${isExpanded ? '📅' : name[0]}
+                                </div>
+                                <div class="text-right">
+                                    <span class="font-bold block">${name}</span>
+                                    <span class="text-xs ${mutedClass}">${dayTasks.filter(t => t.completed).length}/${dayTasks.length} مكتملة</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                ${dayTasks.length > 0 ? `
+                                    <div class="w-12 h-12 relative">
+                                        <svg class="w-full h-full transform -rotate-90">
+                                            <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="4" fill="none" class="${state.isDarkMode ? 'text-slate-700' : 'text-slate-200'}"/>
+                                            <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="4" fill="none" 
+                                                stroke-dasharray="${125}" stroke-dashoffset="${125 - (125 * (dayTasks.length ? dayTasks.filter(t => t.completed).length / dayTasks.length : 0))}"
+                                                class="${isExpanded ? 'text-indigo-500' : 'text-emerald-500'}"/>
+                                        </svg>
+                                    </div>
+                                ` : ''}
+                                <span class="text-lg ${isExpanded ? 'rotate-180' : ''} transition-transform duration-300">▲</span>
+                            </div>
+                        </button>
+                        ${isExpanded ? `
+                            <div class="px-5 pb-5 space-y-3 animate-slideUp">
+                                ${dayTasks.length === 0 ? `
+                                    <div class="text-center py-8 ${mutedClass}">
+                                        <span class="text-4xl mb-2 block">✨</span>
+                                        <span class="text-sm">لا توجد مهام لهذا اليوم</span>
+                                    </div>
+                                ` : dayTasks.map(t => renderTaskItem(t, mutedClass)).join('')}
+                                
+                                <div class="flex gap-2 pt-2">
+                                    <button onclick="state.showAddTask = true; state.expandedDay = ${id}; state.newTaskText = ''; state.newTaskNote = ''; state.newTaskRepeat = 'none'; render()" class="flex-1 bg-slate-800/50 text-slate-400 py-3 rounded-2xl text-sm font-bold flex items-center justify-center gap-2">
+                                        <span>+</span> إضافة مهمة
+                                    </button>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderTaskItem(task, mutedClass) {
+            const priority = PRIORITIES.find(p => p.id === task.priority);
+            return `
+                <div class="group flex items-center gap-3 p-4 ${state.isDarkMode ? 'bg-slate-800/30' : 'bg-slate-100'} rounded-2xl hover:bg-indigo-500/10 transition-all duration-200">
+                    <button onclick="toggleTask(${task.id})" class="w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all duration-200 ${task.completed ? 'bg-green-500 border-green-500 scale-110' : 'border-slate-600 hover:border-indigo-500'}">
+                        ${task.completed ? '<span class="text-white text-xs font-bold">✓</span>' : ''}
+                    </button>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs">${priority?.icon || ''}</span>
+                            <span class="category-dot category-${task.category}"></span>
+                            <span class="flex-1 text-sm truncate ${task.completed ? 'line-through ' + mutedClass : ''}">${task.text}</span>
+                        </div>
+                        ${task.note ? `<p class="text-xs ${mutedClass} mt-1 truncate">${task.note}</p>` : ''}
+                        ${task.repeat !== 'none' ? `<span class="text-xs text-amber-500 mt-1">🔄 ${task.repeat === 'daily' ? 'يومياً' : task.repeat === 'weekly' ? 'أسبوعياً' : 'شهرياً'}</span>` : ''}
+                        ${task.isPlanTask ? `<span class="text-xs text-indigo-500 mt-1">📋 من خطة عمل</span>` : ''}
+                    </div>
+                    <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onclick="deleteTask(${task.id})" class="p-2 rounded-lg ${state.isDarkMode ? 'bg-slate-700' : 'bg-slate-200'} text-sm">🗑️</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAddTaskModal(inputClass) {
+            return `
+                <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center safe-bottom" onclick="state.showAddTask = false; render()">
+                    <div class="w-full max-w-md bg-slate-900 rounded-t-[2rem] p-6 animate-slideUp" onclick="event.stopPropagation()">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-xl font-bold">مهمة جديدة</h3>
+                            <button onclick="state.showAddTask = false; render()" class="p-2 bg-slate-800 rounded-full">✕</button>
+                        </div>
+                        
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-bold mb-2 text-slate-400">المهمة</label>
+                                <input type="text" id="taskTextInput" value="${state.newTaskText}" oninput="state.newTaskText = this.value" placeholder="ماذا تريد إنجازه؟" class="w-full ${inputClass} rounded-2xl px-4 py-4 text-sm outline-none focus:border-indigo-500 transition-colors">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-bold mb-2 text-slate-400">ملاحظة (اختياري)</label>
+                                <textarea id="taskNoteInput" oninput="state.newTaskNote = this.value" placeholder="أي تفاصيل إضافية..." class="w-full ${inputClass} rounded-2xl px-4 py-3 text-sm outline-none focus:border-indigo-500 resize-none h-24"></textarea>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-bold mb-2 text-slate-400">التصنيف</label>
+                                <button onclick="state.showCategoryPicker = true; render()" class="w-full ${inputClass} rounded-2xl px-4 py-3 text-sm flex items-center justify-between">
+                                    <span class="flex items-center gap-2">
+                                        <span class="category-dot category-${state.selectedCategory}"></span>
+                                        ${CATEGORIES.find(c => c.id === state.selectedCategory)?.name}
+                                    </span>
+                                    <span>▼</span>
+                                </button>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-bold mb-2 text-slate-400">الأولوية</label>
+                                <button onclick="state.showPriorityPicker = true; render()" class="w-full ${inputClass} rounded-2xl px-4 py-3 text-sm flex items-center justify-between">
+                                    <span class="flex items-center gap-2">
+                                        ${PRIORITIES.find(p => p.id === state.newTaskPriority)?.icon}
+                                        ${PRIORITIES.find(p => p.id === state.newTaskPriority)?.name}
+                                    </span>
+                                    <span>▼</span>
+                                </button>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-bold mb-2 text-slate-400">التكرار</label>
+                                <select onchange="state.newTaskRepeat = this.value" class="w-full ${inputClass} rounded-2xl px-4 py-3 text-sm outline-none appearance-none cursor-pointer">
+                                    <option value="none" ${state.newTaskRepeat === 'none' ? 'selected' : ''}>بدون تكرار</option>
+                                    <option value="daily" ${state.newTaskRepeat === 'daily' ? 'selected' : ''}>يومياً</option>
+                                    <option value="weekly" ${state.newTaskRepeat === 'weekly' ? 'selected' : ''}>أسبوعياً</option>
+                                    <option value="monthly" ${state.newTaskRepeat === 'monthly' ? 'selected' : ''}>شهرياً</option>
+                                </select>
+                            </div>
+                            
+                            <button onclick="addTask()" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/25">
+                                إضافة المهمة
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPriorityPicker() {
+            return `
+                <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick="state.showPriorityPicker = false; render()">
+                    <div class="w-full max-w-sm bg-slate-900 rounded-[2rem] p-6 animate-slideUp" onclick="event.stopPropagation()">
+                        <h3 class="text-xl font-bold mb-6 text-center">اختر الأولوية</h3>
+                        <div class="space-y-3">
+                            ${PRIORITIES.map(p => `
+                                <button onclick="state.newTaskPriority = '${p.id}'; state.showPriorityPicker = false; render()" class="w-full p-4 rounded-2xl flex items-center gap-4 ${state.newTaskPriority === p.id ? 'bg-indigo-600' : 'bg-slate-800'} transition-colors">
+                                    <span class="text-2xl">${p.icon}</span>
+                                    <span class="font-bold">${p.name}</span>
+                                </button>
+                            `).join('')}
+                        </div>
+                        <button onclick="state.showPriorityPicker = false; render()" class="w-full mt-6 py-3 rounded-2xl ${state.isDarkMode ? 'bg-slate-800' : 'bg-slate-200'} font-bold">إلغاء</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderCategoryPicker() {
+            return `
+                <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick="state.showCategoryPicker = false; render()">
+                    <div class="w-full max-w-sm bg-slate-900 rounded-[2rem] p-6 animate-slideUp" onclick="event.stopPropagation()">
+                        <h3 class="text-xl font-bold mb-6 text-center">اختر التصنيف</h3>
+                        <div class="space-y-3">
+                            ${CATEGORIES.map(c => `
+                                <button onclick="selectCategory('${c.id}')" class="w-full p-4 rounded-2xl flex items-center gap-4 ${state.selectedCategory === c.id ? 'bg-indigo-600' : 'bg-slate-800'} transition-colors">
+                                    <span class="text-2xl">${c.icon}</span>
+                                    <span class="category-dot category-${c.id}"></span>
+                                    <span class="font-bold">${c.name}</span>
+                                </button>
+                            `).join('')}
+                        </div>
+                        <button onclick="state.showCategoryPicker = false; render()" class="w-full mt-6 py-3 rounded-2xl ${state.isDarkMode ? 'bg-slate-800' : 'bg-slate-200'} font-bold">إلغاء</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderIdeas(cardClass, inputClass, mutedClass) {
+            return `
+                <div class="space-y-4">
+                    <button onclick="state.showAddIdea = true; state.newIdeaText = ''; render()" class="w-full bg-gradient-to-r from-indigo-600 to-violet-600 p-6 rounded-[2rem] text-white shadow-lg shadow-indigo-500/25">
+                        <span class="text-4xl mb-2 block">💡</span>
+                        <span class="font-bold text-lg">أضف فكرة جديدة</span>
+                        <p class="text-sm opacity-80 mt-1">سجّل أفكارك وملاحظاتك هنا</p>
+                    </button>
+                    
+                    ${state.ideas.length === 0 ? `
+                        <div class="text-center py-16 ${mutedClass}">
+                            <span class="text-6xl mb-4 block">📝</span>
+                            <span class="text-lg font-bold">لا توجد أفكار بعد</span>
+                            <p class="text-sm mt-2">ابدأ بتسجيل أفكارك وملاحظاتك</p>
+                        </div>
+                    ` : state.ideas.map(i => `
+                        <div class="${cardClass} p-6 rounded-[2rem] border border-indigo-500/10">
+                            <div class="flex items-start gap-4">
+                                <button onclick="openIdeaById(${i.id})" class="text-3xl mt-1 hover:scale-110 transition-transform cursor-pointer">💡</button>
+                                <div class="flex-1">
+                                    <p class="text-md leading-relaxed">${i.text}</p>
+                                    <div class="flex justify-between items-center mt-4">
+                                        <div class="flex items-center gap-3">
+                                            <span class="category-dot category-${i.category || 'other'}"></span>
+                                            <span class="text-xs ${mutedClass}">${new Date(i.createdAt).toLocaleDateString('ar-SA')}</span>
+                                            ${i.hasPlan ? '<span class="text-xs bg-green-500/20 text-green-500 px-2 py-1 rounded-full">📋 خطة عمل</span>' : ''}
+                                        </div>
+                                        <button onclick="deleteIdea(${i.id})" class="text-red-500 text-sm px-3 py-1 rounded-full bg-red-500/10">حذف</button>
+                                    </div>
+                                    ${i.hasPlan ? `
+                                        <div class="mt-3">
+                                            ${state.workPlans.filter(p => p.ideaId === i.id).map(p => `
+                                                <button onclick="openWorkPlanById(${p.id})" class="w-full mt-2 py-2 rounded-xl bg-indigo-500/20 text-indigo-400 text-sm font-bold">
+                                                    📊 عرض خطة العمل (${p.completedTasks}/${p.totalTasks} مهام)
+                                                </button>
+                                            `).join('')}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function renderAddIdeaModal(inputClass) {
+            return `
+                <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center safe-bottom" onclick="state.showAddIdea = false; render()">
+                    <div class="w-full max-w-md bg-slate-900 rounded-t-[2rem] p-6 animate-slideUp" onclick="event.stopPropagation()">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-xl font-bold">فكرة جديدة</h3>
+                            <button onclick="state.showAddIdea = false; render()" class="p-2 bg-slate-800 rounded-full">✕</button>
+                        </div>
+                        
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-bold mb-2 text-slate-400">فكرتك</label>
+                                <textarea id="ideaText" oninput="state.newIdeaText = this.value" placeholder="ماذا يدور في ذهنك؟" class="w-full ${inputClass} rounded-2xl px-4 py-4 text-sm outline-none focus:border-indigo-500 resize-none h-40"></textarea>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-bold mb-2 text-slate-400">التصنيف</label>
+                                <button onclick="state.showCategoryPicker = true; render()" class="w-full ${inputClass} rounded-2xl px-4 py-3 text-sm flex items-center justify-between">
+                                    <span class="flex items-center gap-2">
+                                        <span class="category-dot category-${state.selectedCategory}"></span>
+                                        ${CATEGORIES.find(c => c.id === state.selectedCategory)?.name}
+                                    </span>
+                                    <span>▼</span>
+                                </button>
+                            </div>
+                            
+                            <button onclick="addIdea()" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 shadow-lg shadow-indigo-500/25">
+                                حفظ الفكرة
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAIPanel(inputClass, mutedClass) {
+            if (!state.selectedIdea) return '';
+            
+            return `
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center safe-bottom" onclick="state.showAIPanel = false; render()">
+                    <div class="w-full max-w-2xl bg-slate-900 rounded-t-[2rem] p-6 animate-slideUp max-h-[85vh] overflow-hidden flex flex-col" onclick="event.stopPropagation()">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-bold flex items-center gap-3">
+                                <span class="text-2xl">🤖</span>
+                                مساعد تطوير الأفكار
+                            </h3>
+                            <button onclick="state.showAIPanel = false; render()" class="p-2 bg-slate-800 rounded-full">✕</button>
+                        </div>
+                        
+                        <!-- Idea Preview -->
+                        <div class="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 mb-4">
+                            <p class="text-sm font-bold text-indigo-400 mb-2">الفكرة:</p>
+                            <p class="text-md leading-relaxed">${state.selectedIdea.text}</p>
+                        </div>
+                        
+                        <!-- AI Prompts -->
+                        <div class="grid grid-cols-2 gap-3 mb-4">
+                            <button onclick="generateAIContent('حلل هذه الفكرة', state.selectedIdea)" ${state.isGenerating ? 'disabled' : ''} class="p-3 rounded-xl bg-blue-500/20 text-blue-400 text-sm font-bold hover:bg-blue-500/30 transition-colors">
+                                📊 تحليل الفكرة
+                            </button>
+                            <button onclick="generateAIContent('أنشئ خطة عمل كاملة', state.selectedIdea)" ${state.isGenerating ? 'disabled' : ''} class="p-3 rounded-xl bg-green-500/20 text-green-400 text-sm font-bold hover:bg-green-500/30 transition-colors">
+                                📋 خطة عمل
+                            </button>
+                            <button onclick="generateAIContent('قدم أفكار للتطوير', state.selectedIdea)" ${state.isGenerating ? 'disabled' : ''} class="p-3 rounded-xl bg-amber-500/20 text-amber-400 text-sm font-bold hover:bg-amber-500/30 transition-colors">
+                                💡 تطوير الفكرة
+                            </button>
+                            <button onclick="generateAIContent('أنشئ جدول زمني', state.selectedIdea)" ${state.isGenerating ? 'disabled' : ''} class="p-3 rounded-xl bg-violet-500/20 text-violet-400 text-sm font-bold hover:bg-violet-500/30 transition-colors">
+                                📅 الجدول الزمني
+                            </button>
+                        </div>
+                        
+                        <!-- AI Response -->
+                        <div class="flex-1 overflow-hidden flex flex-col">
+                            <div id="aiResponseContent" class="flex-1 overflow-y-auto p-4 rounded-2xl ${state.isDarkMode ? 'bg-slate-800' : 'bg-slate-100'} text-sm leading-relaxed whitespace-pre-wrap ${mutedClass}">
+                                ${state.isGenerating ? `
+                                    <div class="flex items-center gap-3">
+                                        <span class="animate-spin text-2xl">⏳</span>
+                                        <span class="typing-effect">جاري تحليل فكرتك...</span>
+                                    </div>
+                                ` : state.aiResponse || 'اختر أحد الخيارات أعلاه لتطوير فكرتك باستخدام الذكاء الاصطناعي'}
+                            </div>
+                        </div>
+                        
+                        ${state.generatedPlan ? `
+                            <div class="mt-4 flex gap-3">
+                                <button onclick="state.workPlans.push(state.generatedPlan); save(); alert('✅ تم حفظ خطة العمل!');" class="flex-1 py-3 rounded-2xl bg-green-600 text-white font-bold hover:bg-green-700 transition-colors">
+                                    💾 حفظ الخطة
+                                </button>
+                                <button onclick="addPlanToTasks(state.generatedPlan);" class="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors">
+                                    ➕ إضافة للمهام
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderWorkPlanModal(cardClass, mutedClass) {
+            if (!state.generatedPlan) return '';
+            
+            const progress = Math.round((state.generatedPlan.completedTasks / state.generatedPlan.totalTasks) * 100);
+            
+            return `
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center safe-bottom" onclick="state.showWorkPlan = false; render()">
+                    <div class="w-full max-w-2xl bg-slate-900 rounded-t-[2rem] p-6 animate-slideUp max-h-[85vh] overflow-hidden flex flex-col" onclick="event.stopPropagation()">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-bold flex items-center gap-3">
+                                <span class="text-2xl">📋</span>
+                                خطة عمل
+                            </h3>
+                            <button onclick="state.showWorkPlan = false; render()" class="p-2 bg-slate-800 rounded-full">✕</button>
+                        </div>
+                        
+                        <!-- Plan Header -->
+                        <div class="p-4 rounded-2xl bg-gradient-to-r from-indigo-500/20 to-violet-500/20 border border-indigo-500/30 mb-4">
+                            <p class="text-sm font-bold text-indigo-400 mb-2">${state.generatedPlan.ideaText}</p>
+                            <div class="flex items-center gap-4 mt-3">
+                                <div class="flex-1">
+                                    <div class="flex justify-between text-xs mb-1">
+                                        <span class="${mutedClass}">التقدم</span>
+                                        <span class="text-indigo-400">${progress}%</span>
+                                    </div>
+                                    <div class="h-2 bg-slate-700 rounded-full overflow-hidden">
+                                        <div class="h-full bg-indigo-500 transition-all duration-500" style="width: ${progress}%"></div>
+                                    </div>
+                                </div>
+                                <div class="text-center">
+                                    <span class="text-2xl font-black text-indigo-400">${state.generatedPlan.completedTasks}/${state.generatedPlan.totalTasks}</span>
+                                    <p class="text-xs ${mutedClass}">مهام</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Phases -->
+                        <div class="flex-1 overflow-y-auto space-y-4 no-scrollbar">
+                            ${state.generatedPlan.phases.map((phase, index) => `
+                                <div class="p-4 rounded-2xl ${state.isDarkMode ? 'bg-slate-800/50' : 'bg-slate-100'} phase-${index + 1}">
+                                    <div class="flex items-center gap-3 mb-3">
+                                        <span class="text-2xl">${PHASES[index]?.icon || '📌'}</span>
+                                        <div>
+                                            <h4 class="font-bold">${phase.name}</h4>
+                                            <p class="text-xs ${mutedClass}">${PHASES[index]?.duration || '2-3 أيام'}</p>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-2">
+                                        ${phase.tasks.map((task, taskIndex) => `
+                                            <div class="flex items-center gap-3 p-2 rounded-xl ${state.isDarkMode ? 'bg-slate-900' : 'bg-white'}">
+                                                <button onclick="togglePlanTask(${index}, ${taskIndex})" class="w-5 h-5 rounded border-2 ${phase.completed ? 'bg-green-500 border-green-500' : 'border-slate-600'}">
+                                                    ${phase.completed ? '<span class="text-white text-xs">✓</span>' : ''}
+                                                </button>
+                                                <span class="flex-1 text-sm ${phase.completed ? 'line-through ' + mutedClass : ''}">${task}</span>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        
+                        <!-- Actions -->
+                        <div class="mt-4 flex gap-3">
+                            <button onclick="addPlanToTasks(state.generatedPlan)" class="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors">
+                                ➕ إضافة للمهام
+                            </button>
+                            <button onclick="state.showWorkPlan = false; render()" class="px-6 py-3 rounded-2xl ${state.isDarkMode ? 'bg-slate-800' : 'bg-slate-200'} font-bold">
+                                إغلاق
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function togglePlanTask(phaseIndex, taskIndex) {
+            const plan = state.generatedPlan;
+            if (plan && plan.phases[phaseIndex]) {
+                // تحديث تقدم المهام
+                const wasCompleted = plan.phases[phaseIndex].completed;
+                plan.phases[phaseIndex].completed = !wasCompleted;
+                plan.completedTasks = plan.phases.reduce((sum, p) => sum + (p.completed ? p.tasks.length : 0), 0);
+                
+                // حفظ الخطة
+                const existingIndex = state.workPlans.findIndex(p => p.id === plan.id);
+                if (existingIndex >= 0) {
+                    state.workPlans[existingIndex] = plan;
+                } else {
+                    state.workPlans.push(plan);
+                }
+                
+                save();
+                render();
+            }
+        }
+
+        function renderStats(stats, cardClass, inputClass, mutedClass) {
+            const weekDays = getWeekDays();
+            const progressData = weekDays.map(d => getDailyProgress(d.dateStr));
+
+            return `
+                <div class="space-y-6">
+                    <!-- Stats Grid -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="${cardClass} p-5 rounded-[2rem] text-center">
+                            <span class="text-4xl mb-2 block">🔥</span>
+                            <span class="text-3xl font-black text-orange-500">${stats.streak}</span>
+                            <p class="text-xs ${mutedClass} mt-1">أيام متتالية</p>
+                        </div>
+                        <div class="${cardClass} p-5 rounded-[2rem] text-center">
+                            <span class="text-4xl mb-2 block">✅</span>
+                            <span class="text-3xl font-black text-green-500">${stats.todayCompleted}</span>
+                            <p class="text-xs ${mutedClass} mt-1">اليوم</p>
+                        </div>
+                        <div class="${cardClass} p-5 rounded-[2rem] text-center">
+                            <span class="text-4xl mb-2 block">📅</span>
+                            <span class="text-3xl font-black text-indigo-500">${stats.weekCompleted}</span>
+                            <p class="text-xs ${mutedClass} mt-1">هذا الأسبوع</p>
+                        </div>
+                        <div class="${cardClass} p-5 rounded-[2rem] text-center">
+                            <span class="text-4xl mb-2 block">⏳</span>
+                            <span class="text-3xl font-black text-amber-500">${stats.pending}</span>
+                            <p class="text-xs ${mutedClass} mt-1">متبقية</p>
+                        </div>
+                    </div>
+
+                    <!-- Progress Chart -->
+                    <div class="${cardClass} p-6 rounded-[2rem]">
+                        <h3 class="font-bold mb-4">تقدم الأسبوع</h3>
+                        <canvas id="progressChart" class="w-full h-48"></canvas>
+                    </div>
+
+                    <!-- Category Breakdown -->
+                    <div class="${cardClass} p-6 rounded-[2rem]">
+                        <h3 class="font-bold mb-4">التوزيع حسب التصنيف</h3>
+                        <div class="space-y-3">
+                            ${CATEGORIES.map(c => {
+                                const catTasks = state.tasks.filter(t => t.category === c.id);
+                                const catCompleted = catTasks.filter(t => t.completed).length;
+                                const percentage = catTasks.length ? Math.round((catCompleted / catTasks.length) * 100) : 0;
+                                return `
+                                    <div>
+                                        <div class="flex justify-between text-sm mb-1">
+                                            <span class="flex items-center gap-2">
+                                                <span class="category-dot category-${c.id}"></span>
+                                                ${c.name}
+                                            </span>
+                                            <span class="${mutedClass}">${catCompleted}/${catTasks.length}</span>
+                                        </div>
+                                        <div class="h-2 ${state.isDarkMode ? 'bg-slate-800' : 'bg-slate-200'} rounded-full overflow-hidden">
+                                            <div class="h-full category-${c.id} transition-all duration-500" style="width: ${percentage}%"></div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Weekly Progress -->
+                    <div class="${cardClass} p-6 rounded-[2rem]">
+                        <h3 class="font-bold mb-4">يوميات الأسبوع</h3>
+                        <div class="flex justify-between">
+                            ${weekDays.map((d, i) => {
+                                const progress = getDailyProgress(d.dateStr);
+                                const isToday = d.dateStr === getTodayString();
+                                return `
+                                    <div class="text-center">
+                                        <div class="w-12 h-12 rounded-2xl flex items-center justify-center mb-2 ${isToday ? 'bg-indigo-600 text-white' : state.isDarkMode ? 'bg-slate-800' : 'bg-slate-200'}">
+                                            <span class="text-lg font-bold">${progress}%</span>
+                                        </div>
+                                        <span class="text-xs ${mutedClass}">${d.name}</span>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSettingsModal(cardClass, inputClass, mutedClass) {
+            return `
+                <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center safe-bottom" onclick="state.showSettings = false; render()">
+                    <div class="w-full max-w-md bg-slate-900 rounded-t-[2rem] p-6 animate-slideUp max-h-[85vh] overflow-y-auto" onclick="event.stopPropagation()">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-xl font-bold">الإعدادات</h3>
+                            <button onclick="state.showSettings = false; render()" class="p-2 bg-slate-800 rounded-full">✕</button>
+                        </div>
+                        
+                        <!-- Settings Tabs -->
+                        <div class="flex gap-2 mb-6 overflow-x-auto pb-2">
+                            ${['general', 'backup', 'about'].map(tab => `
+                                <button onclick="setSettingsTab('${tab}')" class="px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap ${state.settingsTab === tab ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}">
+                                    ${tab === 'general' ? '⚙️ عام' : tab === 'backup' ? '💾 نسخة احتياطية' : 'ℹ️ عن التطبيق'}
+                                </button>
+                            `).join('')}
+                        </div>
+                        
+                        ${state.settingsTab === 'general' ? `
+                            <div class="space-y-6">
+                                <div>
+                                    <label class="block text-sm font-bold mb-3">الإشعارات</label>
+                                    <button onclick="state.settings.notifications = !state.settings.notifications; save(); render()" class="w-full p-4 rounded-2xl flex items-center justify-between ${inputClass}">
+                                        <span class="flex items-center gap-3">
+                                            <span class="text-xl">🔔</span>
+                                            <span>تفعيل الإشعارات</span>
+                                        </span>
+                                        <span class="w-12 h-6 rounded-full ${state.settings.notifications ? 'bg-green-500' : 'bg-slate-600'} relative transition-colors">
+                                            <span class="absolute w-5 h-5 bg-white rounded-full top-0.5 ${state.settings.notifications ? 'left-6.5' : 'left-0.5'} transition-all"></span>
+                                        </span>
+                                    </button>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-bold mb-3">وقت التذكير</label>
+                                    <input type="time" value="${state.settings.reminderTime || '09:00'}" onchange="state.settings.reminderTime = this.value; save()" class="w-full ${inputClass} rounded-2xl px-4 py-3 text-sm outline-none">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-bold mb-3">يوم بداية الأسبوع</label>
+                                    <select onchange="state.settings.startDay = parseInt(this.value); save(); render()" class="w-full ${inputClass} rounded-2xl px-4 py-3 text-sm outline-none appearance-none cursor-pointer">
+                                        ${DAYS.map((d, i) => `<option value="${i}" ${(state.settings.startDay || 6) === i ? 'selected' : ''}>${d}</option>`).join('')}
+                                    </select>
+                                </div>
+                                
+                                <button onclick="state.tasks = []; state.ideas = []; state.workPlans = []; state.completedHistory = {}; save(); render(); state.showSettings = false;" class="w-full py-4 rounded-2xl bg-red-600 text-white font-bold">
+                                    🗑️ حذف جميع البيانات
+                                </button>
+                            </div>
+                        ` : state.settingsTab === 'backup' ? `
+                            <div class="space-y-4">
+                                <button onclick="exportData()" class="w-full p-5 rounded-2xl ${inputClass} flex items-center justify-between">
+                                    <span class="flex items-center gap-3">
+                                        <span class="text-2xl">📤</span>
+                                        <span class="font-bold">تصدير البيانات</span>
+                                    </span>
+                                    <span>⬇️</span>
+                                </button>
+                                
+                                <label class="w-full p-5 rounded-2xl ${inputClass} flex items-center justify-between cursor-pointer">
+                                    <span class="flex items-center gap-3">
+                                        <span class="text-2xl">📥</span>
+                                        <span class="font-bold">استيراد البيانات</span>
+                                    </span>
+                                    <input type="file" accept=".json" onchange="importData(this.files[0])" class="hidden">
+                                    <span>⬆️</span>
+                                </label>
+                                
+                                <div class="p-4 rounded-2xl ${state.isDarkMode ? 'bg-slate-800' : 'bg-slate-200'}">
+                                    <p class="text-xs ${mutedClass}">آخر نسخة احتياطية: ${localStorage.getItem('enjaaz_lastBackup') || 'لم يتم إنشاء نسخة'}</p>
+                                </div>
+                            </div>
+                        ` : `
+                            <div class="text-center space-y-4">
+                                <div class="text-6xl">📱</div>
+                                <h2 class="text-2xl font-black">إنجازي</h2>
+                                <p class="text-sm ${mutedClass}">الإصدار 2.5.0</p>
+                                <p class="text-sm leading-relaxed ${mutedClass}>
+                                    تطبيق إدارة المهام والأفكار الأسبوعي<br>
+                                    مع ميزة تطوير الأفكار بالذكاء الاصطناعي
+                                </p>
+                                <div class="flex justify-center gap-4 mt-6">
+                                    <a href="#" class="text-indigo-500 text-sm">سياسة الخصوصية</a>
+                                    <a href="#" class="text-indigo-500 text-sm">الشروط والأحكام</a>
+                                </div>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('progressChart');
+            if (!ctx) return;
+
+            const weekDays = getWeekDays();
+            const progressData = weekDays.map(d => getDailyProgress(d.dateStr));
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: weekDays.map(d => d.name),
+                    datasets: [{
+                        label: 'التقدم',
+                        data: progressData,
+                        backgroundColor: 'rgba(99, 102, 241, 0.5)',
+                        borderColor: 'rgb(99, 102, 241)',
+                        borderWidth: 2,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initialize
+        render();
+        
+        // Request notification permission if enabled
+        if (state.settings.notifications && 'Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+
+        // Register Service Worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registered:', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('ServiceWorker registration failed:', error);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>
